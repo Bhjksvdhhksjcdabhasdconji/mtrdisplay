@@ -1,0 +1,105 @@
+import time
+from datetime import datetime
+from IPython.display import clear_output
+import requests
+
+def fetch_mtr_schedule(line_code, station_code):
+    # Using a reliable public API proxy / CORS worker to route around US geo-blocks
+    target_url = f"https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line={line_code.upper()}&sta={station_code.upper()}"
+    proxy_url = f"https://api.allorigins.win/get?url={requests.utils.quote(target_url)}"
+    
+    try:
+        response = requests.get(proxy_url, timeout=8)
+        response.raise_for_status()
+        res_json = response.json()
+        
+        # AllOrigins wraps the response in a 'contents' string
+        import json
+        data = json.loads(res_json.get("contents", "{}"))
+        
+        # Clear Colab output cleanly
+        clear_output(wait=True)
+        
+        print(f"🚆 MTR Live Tracker (Proxied from US Colab) | Tai Wo ({station_code.upper()})")
+        print(f"🕒 Last Refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 65)
+        
+        if data.get("status") != 1:
+            print(f"⚠️ Notice: {data.get('message', 'No trains or service disruption.')}")
+            return
+        
+        station_key = f"{station_code.upper()}-{line_code.upper()}"
+        line_info = data.get("data", {}).get(station_key, {})
+        
+        if not line_info:
+            print("No active schedule found for Tai Wo right now.")
+            return
+
+        if line_info.get("isServiceStopped") == 1:
+            print("🛑 Service currently suspended.")
+            return
+
+        direction_labels = {
+            "UP": "Southbound (towards Admiralty / 金鐘)",
+            "DOWN": "Northbound (towards Lo Wu / Lok Ma Chau | 羅湖 / 落馬洲)"
+        }
+
+        has_trains = False
+
+        for dir_key in ["UP", "DOWN"]:
+            dir_data = line_info.get(dir_key)
+            if not dir_data:
+                continue
+                
+            print(f"\n➡️ {direction_labels.get(dir_key, dir_key)}")
+            
+            train_items = []
+            if isinstance(dir_data, list):
+                train_items = dir_data
+            elif isinstance(dir_data, dict):
+                for p_key, p_val in dir_data.items():
+                    if isinstance(p_val, list):
+                        for t in p_val:
+                            if 'plat' not in t:
+                                t['plat'] = p_key
+                            train_items.append(t)
+            
+            if not train_items:
+                print("   (No upcoming trains listed)")
+                continue
+
+            has_trains = True
+            for train in train_items:
+                seq = train.get("seq", "-")
+                plat = train.get("plat", "-")
+                dest = train.get("dest", "N/A")
+                arr_time = train.get("time", "N/A")
+                ttnt = train.get("ttnt", "")
+                
+                countdown = f"{ttnt} min(s)" if ttnt else "Arriving"
+                if ttnt == "0":
+                    countdown = "Arriving / Door Opening"
+
+                print(f"   • [Plat {plat}] Train #{seq} ➔ Dest: {dest:<4} | ETA: {arr_time} ({countdown})")
+
+        if not has_trains:
+            print("\n⚠️ No train schedule records found.")
+
+        print("\n" + "=" * 65)
+        print("💡 Tip: Click the Stop (■) button in Colab to end the loop.")
+
+    except Exception as e:
+        clear_output(wait=True)
+        print(f"❌ Connection or Parsing Error: {e}")
+
+# --- Configuration ---
+LINE = "EAL"        # East Rail Line
+STATION = "TWO"     # Tai Wo Station
+REFRESH_INTERVAL = 15 # Seconds
+
+try:
+    while True:
+        fetch_mtr_schedule(LINE, STATION)
+        time.sleep(REFRESH_INTERVAL)
+except KeyboardInterrupt:
+    print("\n🛑 Live tracker stopped.")
