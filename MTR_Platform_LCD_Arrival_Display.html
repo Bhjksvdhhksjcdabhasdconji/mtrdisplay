@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTR Platform Passenger Information Display Board</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Roboto:wght@500;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', 'Microsoft JhengHei', 'Roboto', sans-serif;
+            background-color: #0b1329;
+            color: #0d2847;
+            user-select: none;
+            overflow-x: hidden;
+        }
+
+        /* Alternate stripe background colors matching MTR LCD screens */
+        .row-stripe-even {
+            background: linear-gradient(180deg, #e0f7fc 0%, #b8eeea 100%);
+        }
+        .row-stripe-odd {
+            background: linear-gradient(180deg, #4ce3f7 0%, #29d3eb 100%);
+        }
+
+        /* Red circle platform badge */
+        .platform-badge {
+            background-color: #bb1919;
+            color: #ffffff;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            font-weight: 900;
+        }
+
+        /* Pulsing animation for arriving trains */
+        .arriving-pulse {
+            animation: pulse-glow 1.2s infinite alternate;
+        }
+        @keyframes pulse-glow {
+            from { opacity: 0.7; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1.02); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+    <div class="flex-1 flex flex-col w-full max-w-7xl mx-auto shadow-2xl overflow-hidden my-0 sm:my-4 sm:rounded-xl border border-slate-700">
+        
+        <!-- Top Dark Blue Header Bar -->
+        <header class="bg-[#121c38] text-white px-4 sm:px-8 py-3 flex items-center justify-between border-b-2 border-[#1e2d54]">
+            <!-- Left Info Section (Weather & Temp) -->
+            <div class="flex items-center space-x-4 sm:space-x-6 text-xl sm:text-3xl font-bold">
+                <!-- Weather Sun Icon -->
+                <i class="fas fa-sun text-amber-400"></i>
+                <!-- Flame / Risk Icon -->
+                <i class="fas fa-fire text-red-500"></i>
+                <!-- Temperature Icon & Value -->
+                <div class="flex items-center text-cyan-300">
+                    <i class="fas fa-temperature-low mr-2 text-2xl sm:text-3xl"></i>
+                    <span id="display-temp">18°C</span>
+                </div>
+            </div>
+
+            <!-- Right Info Section (Digital Clock) -->
+            <div class="flex items-center space-x-3">
+                <span id="digital-clock" class="text-3xl sm:text-5xl font-black font-mono tracking-wider text-white">
+                    10:53
+                </span>
+            </div>
+        </header>
+
+        <!-- Main Schedule Display Area -->
+        <main id="display-board" class="flex-1 flex flex-col justify-stretch bg-[#29d3eb] min-h-[480px]">
+            <!-- Dynamic Train Rows will be injected here -->
+            <div class="flex-1 flex items-center justify-center p-8 text-2xl font-bold text-slate-800">
+                <i class="fas fa-spinner fa-spin mr-3"></i> 載入中 Loading MTR Data...
+            </div>
+        </main>
+
+        <!-- Control Bar (Bottom Settings & Manual Station Select) -->
+        <footer class="bg-[#0e162d] text-slate-300 px-4 py-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-sm">
+            
+            <div class="flex items-center space-x-3">
+                <span class="font-bold text-cyan-400">
+                    <i class="fas fa-train mr-1"></i> <span id="current-station-label">太和 Tai Wo (EAL)</span>
+                </span>
+                <span class="text-xs text-slate-500" id="last-update-time">最後更新: --:--:--</span>
+            </div>
+
+            <!-- Line & Station Selectors -->
+            <div class="flex flex-wrap items-center gap-2">
+                <select id="select-line" onchange="changeLine()" class="bg-[#192548] text-white text-xs sm:text-sm px-3 py-1.5 rounded border border-slate-700 focus:outline-none focus:border-cyan-400">
+                    <option value="EAL" selected>東鐵綫 East Rail Line</option>
+                    <option value="TML">屯馬綫 Tuen Ma Line</option>
+                    <option value="TWL">荃灣綫 Tsuen Wan Line</option>
+                    <option value="KTL">觀塘綫 Kwun Tong Line</option>
+                    <option value="ISL">港島綫 Island Line</option>
+                    <option value="TKL">將軍澳綫 Tseung Kwan O Line</option>
+                    <option value="SIL">南港島綫 South Island Line</option>
+                    <option value="AEL">機場快綫 Airport Express</option>
+                </select>
+
+                <select id="select-station" onchange="changeStation()" class="bg-[#192548] text-white text-xs sm:text-sm px-3 py-1.5 rounded border border-slate-700 focus:outline-none focus:border-cyan-400">
+                    <!-- Populated via JS -->
+                </select>
+
+                <select id="select-direction" onchange="changeDirection()" class="bg-[#192548] text-white text-xs sm:text-sm px-3 py-1.5 rounded border border-slate-700 focus:outline-none focus:border-cyan-400">
+                    <option value="BOTH">顯示全部方向 All</option>
+                    <option value="UP">Southbound / UP (南行)</option>
+                    <option value="DOWN">Northbound / DOWN (北行)</option>
+                </select>
+
+                <button onclick="manualRefresh()" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded text-xs sm:text-sm font-bold transition-all">
+                    <i class="fas fa-sync-alt mr-1"></i> 刷新
+                </button>
+            </div>
+
+        </footer>
+    </div>
+
+    <script>
+        // Data structure for MTR Lines and Stations
+        const MTR_LINES = {
+            EAL: {
+                name: "東鐵綫 East Rail Line",
+                stations: [
+                    { code: "TWO", zh: "太和", en: "Tai Wo" },
+                    { code: "ADM", zh: "金鐘", en: "Admiralty" },
+                    { code: "EXC", zh: "會展", en: "Exhibition Centre" },
+                    { code: "HUH", zh: "紅磡", en: "Hung Hom" },
+                    { code: "MKK", zh: "旺角東", en: "Mong Kok East" },
+                    { code: "KOT", zh: "九龍塘", en: "Kowloon Tong" },
+                    { code: "TAW", zh: "大圍", en: "Tai Wai" },
+                    { code: "SHT", zh: "沙田", en: "Sha Tin" },
+                    { code: "FOT", zh: "火炭", en: "Fo Tan" },
+                    { code: "RAC", zh: "馬場", en: "Racecourse" },
+                    { code: "UNI", zh: "大學", en: "University" },
+                    { code: "TAP", zh: "大埔墟", en: "Tai Po Market" },
+                    { code: "FAN", zh: "粉嶺", en: "Fanling" },
+                    { code: "SHS", zh: "上水", en: "Sheung Shui" },
+                    { code: "LWO", zh: "羅湖", en: "Lo Wu" },
+                    { code: "LMK", zh: "落馬洲", en: "Lok Ma Chau" }
+                ]
+            },
+            TML: {
+                name: "屯馬綫 Tuen Ma Line",
+                stations: [
+                    { code: "TUM", zh: "屯門", en: "Tuen Mun" },
+                    { code: "SIH", zh: "兆康", en: "Siu Hong" },
+                    { code: "TIS", zh: "天水圍", en: "Tin Shui Wai" },
+                    { code: "LOP", zh: "朗屏", en: "Long Ping" },
+                    { code: "YUL", zh: "元朗", en: "Yuen Long" },
+                    { code: "KSH", zh: "錦上路", en: "Kam Sheung Road" },
+                    { code: "TWW", zh: "荃灣西", en: "Tsuen Wan West" },
+                    { code: "MEF", zh: "美孚", en: "Mei Foo" },
+                    { code: "NAC", zh: "南昌", en: "Nam Cheong" },
+                    { code: "AUS", zh: "柯士甸", en: "Austin" },
+                    { code: "HUH", zh: "紅磡", en: "Hung Hom" },
+                    { code: "HOM", zh: "何文田", en: "Ho Man Tin" },
+                    { code: "TKW", zh: "土瓜灣", en: "To Kwa Wan" },
+                    { code: "SUW", zh: "宋皇臺", en: "Sung Wong Toi" },
+                    { code: "KAT", zh: "啟德", en: "Kai Tak" },
+                    { code: "DIH", zh: "鑽石山", en: "Diamond Hill" },
+                    { code: "HIK", zh: "顯徑", en: "Hin Keng" },
+                    { code: "TAW", zh: "大圍", en: "Tai Wai" },
+                    { code: "WKS", zh: "烏溪沙", en: "Wu Kai Sha" }
+                ]
+            },
+            TWL: {
+                name: "荃灣綫 Tsuen Wan Line",
+                stations: [
+                    { code: "TSW", zh: "荃灣", en: "Tsuen Wan" },
+                    { code: "TST", zh: "尖沙咀", en: "Tsim Sha Tsui" },
+                    { code: "JOR", zh: "佐敦", en: "Jordan" },
+                    { code: "YMT", zh: "油麻地", en: "Yau Ma Tei" },
+                    { code: "MOK", zh: "旺角", en: "Mong Kok" },
+                    { code: "ADM", zh: "金鐘", en: "Admiralty" },
+                    { code: "CEN", zh: "中環", en: "Central" }
+                ]
+            },
+            KTL: {
+                name: "觀塘綫 Kwun Tong Line",
+                stations: [
+                    { code: "TIK", zh: "調景嶺", en: "Tiu Keng Leng" },
+                    { code: "KWT", zh: "觀塘", en: "Kwun Tong" },
+                    { code: "KOT", zh: "九龍塘", en: "Kowloon Tong" },
+                    { code: "WHA", zh: "黃埔", en: "Whampoa" }
+                ]
+            },
+            ISL: {
+                name: "港島綫 Island Line",
+                stations: [
+                    { code: "CHW", zh: "柴灣", en: "Chai Wan" },
+                    { code: "ADM", zh: "金鐘", en: "Admiralty" },
+                    { code: "CEN", zh: "中環", en: "Central" },
+                    { code: "KET", zh: "堅尼地城", en: "Kennedy Town" }
+                ]
+            },
+            TKL: {
+                name: "將軍澳綫 Tseung Kwan O Line",
+                stations: [
+                    { code: "POA", zh: "寶琳", en: "Po Lam" },
+                    { code: "LHA", zh: "康城", en: "LOHAS Park" },
+                    { code: "NOP", zh: "北角", en: "North Point" }
+                ]
+            },
+            SIL: {
+                name: "南港島綫 South Island Line",
+                stations: [
+                    { code: "SOH", zh: "海怡半島", en: "South Horizons" },
+                    { code: "ADM", zh: "金鐘", en: "Admiralty" }
+                ]
+            },
+            AEL: {
+                name: "機場快綫 Airport Express",
+                stations: [
+                    { code: "HOK", zh: "香港", en: "Hong Kong" },
+                    { code: "AIR", zh: "機場", en: "Airport" },
+                    { code: "AWE", zh: "博覽館", en: "AsiaWorld-Expo" }
+                ]
+            }
+        };
+
+        // Destination Station Code dictionary mapping to Chinese
+        const STATION_NAMES_ZH = {
+            "ADM": "金鐘", "EXC": "會展", "HUH": "紅磡", "MKK": "旺角東", "KOT": "九龍塘",
+            "TAW": "大圍", "SHT": "沙田", "FOT": "火炭", "RAC": "馬場", "UNI": "大學",
+            "TAP": "大埔墟", "TWO": "太和", "FAN": "粉嶺", "SHS": "上水", "LWO": "羅湖",
+            "LMK": "落馬洲", "TUM": "屯門", "SIH": "兆康", "TIS": "天水圍", "LOP": "朗屏",
+            "YUL": "元朗", "KSH": "錦上路", "TWW": "荃灣西", "MEF": "美孚", "NAC": "南昌",
+            "AUS": "柯士甸", "HOM": "何文田", "TKW": "土瓜灣", "SUW": "宋皇臺", "KAT": "啟德",
+            "DIH": "鑽石山", "HIK": "顯徑", "WKS": "烏溪沙", "TSW": "荃灣", "TST": "尖沙咀",
+            "JOR": "佐敦", "YMT": "油麻地", "MOK": "旺角", "CEN": "中環", "TIK": "調景嶺",
+            "KWT": "觀塘", "WHA": "黃埔", "CHW": "柴灣", "KET": "堅尼地城", "POA": "寶琳",
+            "LHA": "康城", "NOP": "北角", "SOH": "海怡半島", "HOK": "香港", "AIR": "機場", "AWE": "博覽館"
+        };
+
+        // App state variables
+        let currentLine = "EAL";
+        let currentStation = "TWO";
+        let currentDirection = "BOTH";
+        let refreshTimer = null;
+
+        // Initialize clock & state
+        window.onload = function() {
+            updateClock();
+            setInterval(updateClock, 1000);
+
+            populateStationSelect();
+            fetchMTRData();
+
+            // Auto-refresh every 15 seconds
+            refreshTimer = setInterval(fetchMTRData, 15000);
+        };
+
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById("digital-clock").textContent = `${hours}:${minutes}`;
+        }
+
+        function populateStationSelect() {
+            const selectEl = document.getElementById("select-station");
+            selectEl.innerHTML = "";
+            MTR_LINES[currentLine].stations.forEach(sta => {
+                const opt = document.createElement("option");
+                opt.value = sta.code;
+                opt.textContent = `${sta.zh} ${sta.en}`;
+                if (sta.code === currentStation) opt.selected = true;
+                selectEl.appendChild(opt);
+            });
+
+            // Update bottom station label
+            const currentObj = MTR_LINES[currentLine].stations.find(s => s.code === currentStation) || { zh: currentStation, en: "" };
+            document.getElementById("current-station-label").textContent = `${currentObj.zh} ${currentObj.en} (${currentLine})`;
+        }
+
+        function changeLine() {
+            currentLine = document.getElementById("select-line").value;
+            currentStation = MTR_LINES[currentLine].stations[0].code;
+            populateStationSelect();
+            fetchMTRData();
+        }
+
+        function changeStation() {
+            currentStation = document.getElementById("select-station").value;
+            populateStationSelect();
+            fetchMTRData();
+        }
+
+        function changeDirection() {
+            currentDirection = document.getElementById("select-direction").value;
+            fetchMTRData();
+        }
+
+        function manualRefresh() {
+            fetchMTRData();
+        }
+
+        // Fetch Live MTR Schedule with multi-proxy fallback mechanism
+        async function fetchMTRData() {
+            const displayBoard = document.getElementById("display-board");
+            const targetUrl = `https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=${currentLine}&sta=${currentStation}`;
+
+            let data = null;
+
+            // Strategy 1: Direct fetch
+            try {
+                const res = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
+                if (res.ok) data = await res.json();
+            } catch (e) {}
+
+            // Strategy 2: AllOrigins proxy fallback
+            if (!data || data.status !== 1) {
+                try {
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+                    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+                    if (res.ok) {
+                        const json = await res.json();
+                        data = JSON.parse(json.contents);
+                    }
+                } catch (e) {}
+            }
+
+            // Strategy 3: Corsproxy.io fallback
+            if (!data || data.status !== 1) {
+                try {
+                    const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+                    const res = await fetch(proxyUrl2, { signal: AbortSignal.timeout(6000) });
+                    if (res.ok) data = await res.json();
+                } catch (e) {}
+            }
+
+            // Update last timestamp
+            const now = new Date();
+            document.getElementById("last-update-time").textContent = `最後更新: ${now.toLocaleTimeString()}`;
+
+            if (!data || data.status !== 1) {
+                displayBoard.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center p-8 text-slate-800 text-center">
+                        <i class="fas fa-exclamation-circle text-4xl text-amber-600 mb-3"></i>
+                        <div class="text-2xl font-bold">暫時未能獲取列車資料</div>
+                        <div class="text-sm mt-1 text-slate-700">Unable to retrieve MTR schedule data. Retrying...</div>
+                    </div>
+                `;
+                return;
+            }
+
+            renderBoard(data);
+        }
+
+        function renderBoard(apiData) {
+            const displayBoard = document.getElementById("display-board");
+            const stationKey = `${currentStation}-${currentLine}`;
+            const stationInfo = apiData.data ? apiData.data[stationKey] : null;
+
+            if (!stationInfo || stationInfo.isServiceStopped === 1) {
+                displayBoard.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center p-8 text-slate-900 text-center">
+                        <i class="fas fa-ban text-5xl text-red-600 mb-3"></i>
+                        <div class="text-3xl font-black">服務暫停</div>
+                        <div class="text-xl font-bold mt-1">Service Suspended / Non-operational</div>
+                    </div>
+                `;
+                return;
+            }
+
+            let allTrains = [];
+
+            // Aggregate trains from UP and/or DOWN directions
+            ["UP", "DOWN"].forEach(dir => {
+                if (currentDirection !== "BOTH" && currentDirection !== dir) return;
+
+                const dirData = stationInfo[dir];
+                if (!dirData) return;
+
+                if (Array.isArray(dirData)) {
+                    dirData.forEach(t => allTrains.push(t));
+                } else if (typeof dirData === 'object') {
+                    for (let [pKey, pVal] of Object.entries(dirData)) {
+                        if (Array.isArray(pVal)) {
+                            pVal.forEach(t => {
+                                if (!t.plat) t.plat = pKey;
+                                allTrains.push(t);
+                            });
+                        }
+                    }
+                }
+            });
+
+            // Sort trains by remaining minutes / arrival sequence
+            allTrains.sort((a, b) => {
+                const ttntA = parseInt(a.ttnt || 999);
+                const ttntB = parseInt(b.ttnt || 999);
+                return ttntA - ttntB;
+            });
+
+            if (allTrains.length === 0) {
+                displayBoard.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center p-8 text-slate-900 text-center">
+                        <i class="fas fa-clock text-4xl text-slate-700 mb-3"></i>
+                        <div class="text-3xl font-black">現時沒有班次資料</div>
+                        <div class="text-lg font-bold mt-1">No upcoming train schedules listed</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Slice top 4 trains to match official 4-row LCD screen standard
+            const displayTrains = allTrains.slice(0, 4);
+            
+            let boardHtml = `<div class="flex-1 flex flex-col h-full">`;
+
+            displayTrains.forEach((train, idx) => {
+                const stripeClass = (idx % 2 === 0) ? "row-stripe-even" : "row-stripe-odd";
+                const destCode = train.dest || "";
+                const destZh = STATION_NAMES_ZH[destCode] || destCode;
+                const plat = train.plat || "1";
+                const ttnt = train.ttnt;
+
+                let countdownHtml = "";
+                if (ttnt === "0" || ttnt === 0) {
+                    countdownHtml = `
+                        <span class="text-red-600 font-black text-3xl sm:text-5xl arriving-pulse">
+                            即將抵達
+                        </span>
+                    `;
+                } else if (ttnt) {
+                    countdownHtml = `
+                        <span class="font-black text-4xl sm:text-6xl tracking-tight text-[#0a2342] mr-2 sm:mr-4">
+                            ${ttnt}
+                        </span>
+                        <span class="font-bold text-2xl sm:text-4xl text-[#0a2342]">
+                            分鐘
+                        </span>
+                    `;
+                } else {
+                    countdownHtml = `
+                        <span class="font-bold text-2xl sm:text-4xl text-[#0a2342]">
+                            即將開出
+                        </span>
+                    `;
+                }
+
+                boardHtml += `
+                    <div class="flex-1 flex items-center justify-between px-6 sm:px-12 border-b border-cyan-400/30 ${stripeClass} py-3 sm:py-0">
+                        
+                        <!-- Left: Destination Name in bold Chinese -->
+                        <div class="flex items-center space-x-4">
+                            <span class="text-4xl sm:text-6xl font-black tracking-widest text-[#0a2342]">
+                                ${destZh}
+                            </span>
+                        </div>
+
+                        <!-- Right: Platform Circle Badge & Minute Countdown -->
+                        <div class="flex items-center space-x-4 sm:space-x-8">
+                            
+                            <!-- Red Circle Platform Badge -->
+                            <div class="platform-badge w-10 h-10 sm:w-16 sm:h-16 text-2xl sm:text-4xl">
+                                ${plat}
+                            </div>
+
+                            <!-- Countdown Minutes Display -->
+                            <div class="flex items-baseline min-w-[140px] sm:min-w-[220px] justify-end">
+                                ${countdownHtml}
+                            </div>
+
+                        </div>
+                    </div>
+                `;
+            });
+
+            // Fill remaining blank rows if less than 4 trains
+            for (let i = displayTrains.length; i < 4; i++) {
+                const stripeClass = (i % 2 === 0) ? "row-stripe-even" : "row-stripe-odd";
+                boardHtml += `
+                    <div class="flex-1 flex items-center px-12 ${stripeClass} opacity-40">
+                        <span class="text-2xl font-bold text-[#0a2342]">--</span>
+                    </div>
+                `;
+            }
+
+            boardHtml += `</div>`;
+            displayBoard.innerHTML = boardHtml;
+        }
+    </script>
+
+</body>
+</html>
